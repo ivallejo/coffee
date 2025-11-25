@@ -42,6 +42,8 @@ export interface Product {
     stock: number;
     min_stock?: number;
     is_available: boolean;
+    unit_of_measure?: string;
+    product_type?: 'simple' | 'composite';
     variants?: Variant[];
     category?: {
         name: string;
