@@ -54,14 +54,14 @@ export async function middleware(request: NextRequest) {
         }
     );
 
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { user } } = await supabase.auth.getUser();
     const { pathname } = request.nextUrl;
 
     // Public routes
     const publicRoutes = ['/login', '/'];
 
     // 1. Protected routes check
-    if (!session && !publicRoutes.includes(pathname)) {
+    if (!user && !publicRoutes.includes(pathname)) {
         const url = request.nextUrl.clone();
         url.pathname = '/login';
         url.searchParams.set('redirectedFrom', pathname);
@@ -69,11 +69,11 @@ export async function middleware(request: NextRequest) {
     }
 
     // 2. Auth page redirect check (if already logged in)
-    if (session && pathname === '/login') {
+    if (user && pathname === '/login') {
         const { data: profile } = await supabase
             .from('profiles')
             .select('role')
-            .eq('id', session.user.id)
+            .eq('id', user.id)
             .single();
 
         const url = request.nextUrl.clone();
@@ -86,11 +86,11 @@ export async function middleware(request: NextRequest) {
     }
 
     // 3. Role-based access control
-    if (session) {
+    if (user) {
         const { data: profile } = await supabase
             .from('profiles')
             .select('role, is_active')
-            .eq('id', session.user.id)
+            .eq('id', user.id)
             .single();
 
         const userRole = profile?.role;
@@ -104,7 +104,7 @@ export async function middleware(request: NextRequest) {
             return NextResponse.redirect(url);
         }
 
-        const adminRoutes = ['/admin', '/products', '/inventory', '/sales', '/users', '/loyalty'];
+        const adminRoutes = ['/admin', '/products', '/categories', '/inventory', '/sales', '/users', '/loyalty'];
         const isAdminRoute = adminRoutes.some(route => pathname.startsWith(route));
 
         if (userRole === 'cashier' && isAdminRoute) {

@@ -1,91 +1,74 @@
 'use client';
 
-import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { useLoyaltyCard, useUpsertLoyaltyCard, useRedeemPoints } from '@/hooks/useLoyalty';
+import { useRedeemPoints } from '@/hooks/useLoyalty';
+import { useCartStore } from '@/store/useCartStore';
+import { useCustomers } from '@/hooks/useCustomers';
 import { toast } from 'sonner';
-import { Loader2, Gift, Star, Phone, Award } from 'lucide-react';
+import { Loader2, Gift, Award } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
 interface LoyaltyModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onApplyDiscount?: (discountAmount: number) => void;
 }
 
-export function LoyaltyModal({ isOpen, onClose, onApplyDiscount }: LoyaltyModalProps) {
-    const [phone, setPhone] = useState('');
-    const [searchedPhone, setSearchedPhone] = useState<string | null>(null);
-    const { data: loyaltyCard, isLoading, refetch } = useLoyaltyCard(searchedPhone);
-    const upsertCard = useUpsertLoyaltyCard();
+export function LoyaltyModal({ isOpen, onClose }: LoyaltyModalProps) {
+    const { customerId } = useCartStore();
+    const { customers } = useCustomers();
     const redeemPoints = useRedeemPoints();
 
+    const selectedCustomer = customers.find(c => c.id === customerId);
+
     const POINTS_FOR_REWARD = 10;
-    const availableRewards = Math.floor((loyaltyCard?.points || 0) / POINTS_FOR_REWARD);
-    const progressToNextReward = ((loyaltyCard?.points || 0) % POINTS_FOR_REWARD) / POINTS_FOR_REWARD * 100;
-
-    const handleSearch = async () => {
-        if (!phone || phone.length < 8) {
-            toast.error('Ingresa un número de teléfono válido');
-            return;
-        }
-        setSearchedPhone(phone);
-    };
-
-    const handleCreateCard = async () => {
-        if (!phone) return;
-
-        try {
-            await upsertCard.mutateAsync(phone);
-            toast.success('Tarjeta de fidelidad creada');
-            setSearchedPhone(phone);
-            refetch();
-        } catch (error: any) {
-            toast.error('Error al crear tarjeta: ' + error.message);
-        }
-    };
+    const currentPoints = selectedCustomer?.loyalty_points || 0;
+    const availableRewards = Math.floor(currentPoints / POINTS_FOR_REWARD);
+    const progressToNextReward = (currentPoints % POINTS_FOR_REWARD) / POINTS_FOR_REWARD * 100;
 
     const handleRedeemReward = async () => {
-        if (!searchedPhone || !loyaltyCard || loyaltyCard.points < POINTS_FOR_REWARD) {
+        if (!customerId || currentPoints < POINTS_FOR_REWARD) {
             toast.error('Puntos insuficientes para canjear');
             return;
         }
 
         try {
             await redeemPoints.mutateAsync({
-                phone: searchedPhone,
+                customerId,
                 pointsToRedeem: POINTS_FOR_REWARD
             });
 
-            // Apply discount if callback provided
-            if (onApplyDiscount) {
-                // Assuming average coffee price is $3.50
-                onApplyDiscount(3.50);
-            }
-
             toast.success('¡Recompensa canjeada! Café gratis aplicado');
-            refetch();
+            onClose();
         } catch (error: any) {
             toast.error('Error al canjear: ' + error.message);
         }
     };
 
-    const handleReset = () => {
-        setPhone('');
-        setSearchedPhone(null);
-    };
+    if (!selectedCustomer) {
+        return (
+            <Dialog open={isOpen} onOpenChange={onClose}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Gift className="h-5 w-5 text-purple-600" />
+                            Programa de Fidelidad
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="py-8 text-center text-gray-500">
+                        <p>Selecciona un cliente para ver sus puntos de fidelidad</p>
+                    </div>
+                    <div className="flex justify-end">
+                        <Button variant="outline" onClick={onClose}>Cerrar</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+        );
+    }
 
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => {
-            if (!open) {
-                handleReset();
-                onClose();
-            }
-        }}>
+        <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
@@ -98,116 +81,74 @@ export function LoyaltyModal({ isOpen, onClose, onApplyDiscount }: LoyaltyModalP
                 </DialogHeader>
 
                 <div className="space-y-6 py-4">
-                    {/* Phone Search */}
-                    <div className="space-y-2">
-                        <Label htmlFor="phone">Número de Teléfono</Label>
-                        <div className="flex gap-2">
-                            <div className="relative flex-1">
-                                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                                <Input
-                                    id="phone"
-                                    type="tel"
-                                    placeholder="Ej: 987654321"
-                                    className="pl-10"
-                                    value={phone}
-                                    onChange={(e) => setPhone(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                                />
-                            </div>
-                            <Button onClick={handleSearch} disabled={isLoading}>
-                                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Buscar'}
-                            </Button>
-                        </div>
-                    </div>
-
-                    {/* Card Not Found */}
-                    {searchedPhone && !loyaltyCard && !isLoading && (
-                        <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg space-y-3">
-                            <p className="text-sm text-blue-800 dark:text-blue-200">
-                                Cliente nuevo. ¿Deseas crear una tarjeta de fidelidad?
-                            </p>
-                            <Button
-                                onClick={handleCreateCard}
-                                disabled={upsertCard.isPending}
-                                className="w-full bg-purple-600 hover:bg-purple-700"
-                            >
-                                {upsertCard.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Star className="mr-2 h-4 w-4" />}
-                                Crear Tarjeta de Fidelidad
-                            </Button>
-                        </div>
-                    )}
-
                     {/* Loyalty Card Display */}
-                    {loyaltyCard && (
-                        <div className="space-y-4">
-                            {/* Card Header */}
-                            <div className="bg-gradient-to-br from-purple-600 to-pink-600 text-white p-6 rounded-lg shadow-lg">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div>
-                                        <p className="text-sm opacity-90">Tarjeta de Fidelidad</p>
-                                        <p className="text-lg font-bold">{loyaltyCard.phone}</p>
-                                    </div>
-                                    <Award className="h-10 w-10 opacity-80" />
+                    <div className="space-y-4">
+                        {/* Card Header */}
+                        <div className="bg-gradient-to-br from-purple-600 to-pink-600 text-white p-6 rounded-lg shadow-lg">
+                            <div className="flex items-center justify-between mb-4">
+                                <div>
+                                    <p className="text-sm opacity-90">Cliente VIP</p>
+                                    <p className="text-lg font-bold">{selectedCustomer.full_name}</p>
+                                    <p className="text-xs opacity-75">{selectedCustomer.doc_type}: {selectedCustomer.doc_number}</p>
                                 </div>
-
-                                <div className="grid grid-cols-2 gap-4 text-center">
-                                    <div>
-                                        <p className="text-3xl font-bold">{loyaltyCard.points}</p>
-                                        <p className="text-xs opacity-90">Puntos</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-3xl font-bold">{loyaltyCard.total_visits}</p>
-                                        <p className="text-xs opacity-90">Visitas</p>
-                                    </div>
-                                </div>
+                                <Award className="h-10 w-10 opacity-80" />
                             </div>
 
-                            {/* Progress to Next Reward */}
-                            <div className="space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-600 dark:text-gray-400">
-                                        Progreso al próximo café gratis
-                                    </span>
-                                    <span className="font-semibold">
-                                        {loyaltyCard.points % POINTS_FOR_REWARD}/{POINTS_FOR_REWARD}
-                                    </span>
+                            <div className="grid grid-cols-2 gap-4 text-center">
+                                <div>
+                                    <p className="text-3xl font-bold">{currentPoints}</p>
+                                    <p className="text-xs opacity-90">Puntos</p>
                                 </div>
-                                <Progress value={progressToNextReward} className="h-2" />
-                            </div>
-
-                            {/* Available Rewards */}
-                            {availableRewards > 0 && (
-                                <div className="bg-green-50 dark:bg-green-950 p-4 rounded-lg space-y-3">
-                                    <div className="flex items-center gap-2">
-                                        <Gift className="h-5 w-5 text-green-600" />
-                                        <p className="font-semibold text-green-800 dark:text-green-200">
-                                            ¡{availableRewards} {availableRewards === 1 ? 'café gratis disponible' : 'cafés gratis disponibles'}!
-                                        </p>
-                                    </div>
-                                    <Button
-                                        onClick={handleRedeemReward}
-                                        disabled={redeemPoints.isPending}
-                                        className="w-full bg-green-600 hover:bg-green-700"
-                                    >
-                                        {redeemPoints.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Gift className="mr-2 h-4 w-4" />}
-                                        Canjear Café Gratis
-                                    </Button>
+                                <div>
+                                    <p className="text-3xl font-bold">{availableRewards}</p>
+                                    <p className="text-xs opacity-90">Cafés Gratis</p>
                                 </div>
-                            )}
-
-                            {/* Stats */}
-                            <div className="text-xs text-gray-500 text-center">
-                                Última visita: {new Date(loyaltyCard.last_visit).toLocaleDateString('es-ES')}
                             </div>
                         </div>
-                    )}
+
+                        {/* Progress to Next Reward */}
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-600 dark:text-gray-400">
+                                    Progreso al próximo café gratis
+                                </span>
+                                <span className="font-semibold">
+                                    {currentPoints % POINTS_FOR_REWARD}/{POINTS_FOR_REWARD}
+                                </span>
+                            </div>
+                            <Progress value={progressToNextReward} className="h-2" />
+                        </div>
+
+                        {/* Available Rewards */}
+                        {availableRewards > 0 && (
+                            <div className="bg-[#673de6]/10 p-4 rounded-lg space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <Gift className="h-5 w-5 text-green-600" />
+                                    <p className="font-semibold text-green-800 dark:text-green-200">
+                                        ¡{availableRewards} {availableRewards === 1 ? 'café gratis disponible' : 'cafés gratis disponibles'}!
+                                    </p>
+                                </div>
+                                <Button
+                                    onClick={handleRedeemReward}
+                                    disabled={redeemPoints.isPending}
+                                    className="w-full bg-[#673de6] hover:bg-[#5a2fcc]"
+                                >
+                                    {redeemPoints.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Gift className="mr-2 h-4 w-4" />}
+                                    Canjear Café Gratis
+                                </Button>
+                            </div>
+                        )}
+
+                        {availableRewards === 0 && (
+                            <div className="text-center text-sm text-gray-500 py-4">
+                                Sigue comprando para acumular más puntos
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => {
-                        handleReset();
-                        onClose();
-                    }}>
+                    <Button variant="outline" onClick={onClose}>
                         Cerrar
                     </Button>
                 </div>

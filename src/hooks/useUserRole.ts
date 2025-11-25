@@ -22,10 +22,11 @@ export function useUserRole() {
 
     useEffect(() => {
         // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                loadUserProfile(session.user.id);
+        // Get initial session securely
+        supabase.auth.getUser().then(({ data: { user } }) => {
+            setUser(user ?? null);
+            if (user) {
+                loadUserProfile(user.id);
             } else {
                 setLoading(false);
             }

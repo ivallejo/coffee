@@ -76,7 +76,7 @@ export function OpenShiftModal({ isOpen, onClose, onSuccess }: OpenShiftModalPro
                     <Button variant="outline" onClick={onClose} disabled={openShift.isPending}>
                         Cancelar
                     </Button>
-                    <Button onClick={handleOpen} disabled={openShift.isPending || !startCash} className="bg-green-600 hover:bg-green-700">
+                    <Button onClick={handleOpen} disabled={openShift.isPending || !startCash} className="bg-[#673de6] hover:bg-[#5a2fcc]">
                         {openShift.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         Aperturar Caja
                     </Button>

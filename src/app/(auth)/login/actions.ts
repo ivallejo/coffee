@@ -54,44 +54,32 @@ export async function signIn(formData: FormData) {
     }
 
     // Get user role to decide redirect
-    const { data: { session } } = await supabase.auth.getSession();
+    // Get user to decide redirect and check status
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (session) {
+    if (user) {
         const { data: profile } = await supabase
             .from('profiles')
-            .select('role')
-            .eq('id', session.user.id)
+            .select('role, is_active')
+            .eq('id', user.id)
             .single();
 
-        if (profile?.role === 'admin') {
-            redirect('/admin');
-        } else {
-            redirect('/pos');
+        if (profile) {
+            // Check if user is active
+            if (profile.is_active === false) {
+                await supabase.auth.signOut();
+                return { error: 'Tu cuenta ha sido desactivada. Contacta al administrador.' };
+            }
+
+            if (profile.role === 'admin') {
+                redirect('/admin');
+            } else {
+                redirect('/pos');
+            }
         }
     }
 
     redirect('/pos');
 }
 
-export async function signUp(formData: FormData) {
-    const email = String(formData.get('email'));
-    const password = String(formData.get('password'));
 
-    const supabase = await createClient();
-
-    const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-            data: {
-                full_name: email.split('@')[0],
-            },
-        },
-    });
-
-    if (error) {
-        return { error: error.message };
-    }
-
-    return { message: '¡Cuenta creada! Revisa tu email para confirmar o inicia sesión.' };
-}

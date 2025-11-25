@@ -10,7 +10,8 @@ export const useProducts = (categoryId?: string) => {
                 .from('products')
                 .select(`
           *,
-          variants (*)
+          variants (*),
+          category:categories(name)
         `)
                 .eq('is_available', true);
 
@@ -36,6 +37,19 @@ export const useCategories = () => {
 
             if (error) throw error;
             return data as Category[];
+        },
+    });
+};
+
+export const useAllProducts = () => {
+    return useQuery({
+        queryKey: ['all-products'],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from('products')
+                .select('*');
+            if (error) throw error;
+            return data as Product[];
         },
     });
 };

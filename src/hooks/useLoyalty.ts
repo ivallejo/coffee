@@ -2,29 +2,40 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
 export interface LoyaltyCard {
-    phone: string;
+    customer_id: string;
     points: number;
     total_visits: number;
     last_visit: string;
+    phone?: string;
+    customers?: {
+        full_name: string;
+        doc_number: string;
+    };
 }
 
-// Get loyalty card by phone
-export function useLoyaltyCard(phone: string | null) {
+// Get loyalty card by customer ID
+export function useLoyaltyCard(customerId: string | null) {
     return useQuery({
-        queryKey: ['loyaltyCard', phone],
+        queryKey: ['loyaltyCard', customerId],
         queryFn: async () => {
-            if (!phone) return null;
+            if (!customerId) return null;
 
             const { data, error } = await supabase
                 .from('loyalty_cards')
-                .select('*')
-                .eq('phone', phone)
+                .select(`
+                    *,
+                    customers (
+                        full_name,
+                        doc_number
+                    )
+                `)
+                .eq('customer_id', customerId)
                 .single();
 
-            if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+            if (error && error.code !== 'PGRST116') throw error;
             return data as LoyaltyCard | null;
         },
-        enabled: !!phone,
+        enabled: !!customerId,
     });
 }
 
@@ -35,41 +46,17 @@ export function useLoyaltyCards() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('loyalty_cards')
-                .select('*')
+                .select(`
+                    *,
+                    customers (
+                        full_name,
+                        doc_number
+                    )
+                `)
                 .order('points', { ascending: false });
 
             if (error) throw error;
             return data as LoyaltyCard[];
-        },
-    });
-}
-
-// Create or update loyalty card
-export function useUpsertLoyaltyCard() {
-    const queryClient = useQueryClient();
-
-    return useMutation({
-        mutationFn: async (phone: string) => {
-            const { data, error } = await supabase
-                .from('loyalty_cards')
-                .upsert({
-                    phone,
-                    points: 0,
-                    total_visits: 0,
-                    last_visit: new Date().toISOString(),
-                }, {
-                    onConflict: 'phone',
-                    ignoreDuplicates: false,
-                })
-                .select()
-                .single();
-
-            if (error) throw error;
-            return data;
-        },
-        onSuccess: (data) => {
-            queryClient.invalidateQueries({ queryKey: ['loyaltyCard', data.phone] });
-            queryClient.invalidateQueries({ queryKey: ['loyaltyCards'] });
         },
     });
 }
@@ -79,11 +66,11 @@ export function useRedeemPoints() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async ({ phone, pointsToRedeem }: { phone: string; pointsToRedeem: number }) => {
+        mutationFn: async ({ customerId, pointsToRedeem }: { customerId: string; pointsToRedeem: number }) => {
             const { data: card } = await supabase
                 .from('loyalty_cards')
                 .select('points')
-                .eq('phone', phone)
+                .eq('customer_id', customerId)
                 .single();
 
             if (!card || card.points < pointsToRedeem) {
@@ -95,7 +82,7 @@ export function useRedeemPoints() {
                 .update({
                     points: card.points - pointsToRedeem,
                 })
-                .eq('phone', phone)
+                .eq('customer_id', customerId)
                 .select()
                 .single();
 
@@ -103,7 +90,7 @@ export function useRedeemPoints() {
             return data;
         },
         onSuccess: (data) => {
-            queryClient.invalidateQueries({ queryKey: ['loyaltyCard', data.phone] });
+            queryClient.invalidateQueries({ queryKey: ['loyaltyCard', data.customer_id] });
             queryClient.invalidateQueries({ queryKey: ['loyaltyCards'] });
         },
     });

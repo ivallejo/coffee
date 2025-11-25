@@ -18,13 +18,15 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { formatCurrency } from '@/lib/currency';
 import { useUserRole } from '@/hooks/useUserRole';
+import { TableSelectorModal, ActiveOrdersList } from '@/components/pos/TableManagement';
+import { Armchair, Save } from 'lucide-react';
 
 export default function POSPage() {
     const { isAdmin, profile, loading: roleLoading } = useUserRole();
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [isOpenShiftModalOpen, setIsOpenShiftModalOpen] = useState(false);
     const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false);
-    const items = useCartStore((state) => state.items);
+    const { items, activeOrderId, tableNumber, setActiveOrder, clearCart, addToCart, setCustomer } = useCartStore();
     const itemCount = items.reduce((acc, item) => acc + item.quantity, 0);
     const router = useRouter();
     const { data: currentShift, isLoading: shiftLoading, refetch: refetchShift } = useCurrentShift();
@@ -44,7 +46,122 @@ export default function POSPage() {
         }
     };
 
+    const [isTableSelectorOpen, setIsTableSelectorOpen] = useState(false);
+    const [isActiveOrdersOpen, setIsActiveOrdersOpen] = useState(false);
+
     const hasActiveShift = !!currentShift;
+
+    const handleSaveOrder = async (tableInput?: string) => {
+        if (items.length === 0) {
+            toast.error('El carrito está vacío');
+            return;
+        }
+
+        const targetTable = tableInput || tableNumber;
+
+        if (!activeOrderId && !targetTable) {
+            setIsTableSelectorOpen(true);
+            return;
+        }
+
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user || !currentShift) return;
+
+            const orderData = {
+                shift_id: currentShift.id,
+                cashier_id: user.id,
+                customer_id: useCartStore.getState().customerId,
+                total_amount: useCartStore.getState().total(),
+                subtotal: useCartStore.getState().total(),
+                tax: 0,
+                status: 'pending',
+                table_number: targetTable,
+                payment_method: 'cash'
+            };
+
+            let savedOrderId = activeOrderId;
+
+            if (activeOrderId) {
+                const { error } = await supabase
+                    .from('orders')
+                    .update(orderData)
+                    .eq('id', activeOrderId);
+                if (error) throw error;
+                toast.success('Orden actualizada');
+            } else {
+                const { data, error } = await supabase
+                    .from('orders')
+                    .insert(orderData)
+                    .select()
+                    .single();
+                if (error) throw error;
+                savedOrderId = data.id;
+                toast.success(`Orden guardada para ${targetTable}`);
+            }
+
+            if (savedOrderId) {
+                if (activeOrderId) {
+                    await supabase.from('order_items').delete().eq('order_id', savedOrderId);
+                }
+
+                const orderItems = items.map(item => ({
+                    order_id: savedOrderId,
+                    product_id: item.product.id,
+                    variant_id: item.variant?.id,
+                    product_name: item.product.name,
+                    variant_name: item.variant?.name,
+                    quantity: item.quantity,
+                    unit_price: item.manualPrice ?? (item.product.base_price + (item.variant?.price_adjustment || 0)),
+                    total_price: (item.manualPrice ?? (item.product.base_price + (item.variant?.price_adjustment || 0))) * item.quantity,
+                    modifiers: item.modifiers,
+                    notes: item.notes
+                }));
+
+                const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
+                if (itemsError) throw itemsError;
+            }
+
+            clearCart();
+            setIsTableSelectorOpen(false);
+
+        } catch (error: any) {
+            console.error(error);
+            toast.error('Error al guardar: ' + error.message);
+        }
+    };
+
+    const handleRetrieveOrder = async (order: any) => {
+        try {
+            clearCart();
+            const { data: items, error } = await supabase
+                .from('order_items')
+                .select(`*, product:products(*), variant:variants(*)`)
+                .eq('order_id', order.id);
+
+            if (error) throw error;
+
+            items?.forEach((item: any) => {
+                addToCart(
+                    item.product,
+                    item.variant,
+                    item.modifiers || [],
+                    item.unit_price
+                );
+                if (item.quantity > 1) {
+                    useCartStore.getState().updateQuantity(useCartStore.getState().items[useCartStore.getState().items.length - 1].uniqueId, item.quantity - 1);
+                }
+            });
+
+            setActiveOrder(order.id, order.table_number);
+            setCustomer(order.customer_id);
+            setIsActiveOrdersOpen(false);
+            toast.success(`Orden de ${order.table_number} recuperada`);
+
+        } catch (error: any) {
+            toast.error('Error al recuperar: ' + error.message);
+        }
+    };
 
     return (
         <div className="flex h-screen overflow-hidden bg-gray-100 dark:bg-gray-950">
@@ -77,7 +194,7 @@ export default function POSPage() {
                                             variant="default"
                                             size="sm"
                                             onClick={() => setIsOpenShiftModalOpen(true)}
-                                            className="bg-green-600 hover:bg-green-700"
+                                            className="bg-[#673de6] hover:bg-[#5a2fcc]"
                                         >
                                             <DollarSign className="h-4 w-4 sm:mr-2" />
                                             <span className="hidden sm:inline">Aperturar Caja</span>
@@ -99,7 +216,7 @@ export default function POSPage() {
                                     </Button>
                                 </SheetTrigger>
                                 <SheetContent side="right" className="w-full sm:w-[400px] p-0">
-                                    <Cart />
+                                    <Cart onSaveOrder={() => handleSaveOrder()} />
                                 </SheetContent>
                             </Sheet>
 
@@ -114,6 +231,18 @@ export default function POSPage() {
                             )}
 
                             {/* Shifts Link - Visible to everyone */}
+                            {hasActiveShift && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setIsActiveOrdersOpen(true)}
+                                    className="hidden sm:flex"
+                                >
+                                    <Armchair className="mr-2 h-4 w-4" />
+                                    Mesas
+                                </Button>
+                            )}
+
                             <Link href="/shifts">
                                 <Button variant="ghost" size="sm">
                                     <Lock className="mr-2 h-4 w-4" />
@@ -131,7 +260,7 @@ export default function POSPage() {
                     {/* Shift Status Bar */}
                     {hasActiveShift && currentShift && (
                         <div className="flex items-center gap-2 text-sm">
-                            <Badge variant="default" className="bg-green-600">
+                            <Badge variant="default" className="bg-[#673de6]">
                                 Caja Abierta
                             </Badge>
                             <span className="text-gray-600 dark:text-gray-400">
@@ -168,7 +297,7 @@ export default function POSPage() {
                                 <Button
                                     size="lg"
                                     onClick={() => setIsOpenShiftModalOpen(true)}
-                                    className="bg-green-600 hover:bg-green-700"
+                                    className="bg-[#673de6] hover:bg-[#5a2fcc]"
                                 >
                                     <DollarSign className="mr-2 h-5 w-5" />
                                     Aperturar Caja
@@ -180,8 +309,8 @@ export default function POSPage() {
             </div>
 
             {/* Desktop Cart Sidebar */}
-            <div className="hidden md:block w-[400px] border-l bg-white dark:bg-gray-900 shadow-xl z-10">
-                <Cart />
+            <div className="hidden md:block w-[400px] border-l bg-white dark:bg-gray-900 shadow-xl z-10 h-full">
+                <Cart onSaveOrder={() => handleSaveOrder()} />
             </div>
 
             {/* Modals */}
@@ -199,6 +328,18 @@ export default function POSPage() {
                     startCash={currentShift.start_cash}
                 />
             )}
+
+            <TableSelectorModal
+                isOpen={isTableSelectorOpen}
+                onClose={() => setIsTableSelectorOpen(false)}
+                onConfirm={handleSaveOrder}
+            />
+
+            <ActiveOrdersList
+                isOpen={isActiveOrdersOpen}
+                onClose={() => setIsActiveOrdersOpen(false)}
+                onSelectOrder={handleRetrieveOrder}
+            />
         </div>
     );
 }
