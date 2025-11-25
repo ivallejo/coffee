@@ -13,17 +13,15 @@ import { formatCurrency } from '@/lib/currency';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { useSearchParams } from 'next/navigation';
+
+export const dynamic = 'force-dynamic';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
 
 export default function SalesReportPage() {
-    const searchParams = useSearchParams();
-    const initialTab = searchParams.get('tab') || 'sales';
-
     const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'last7days' | 'last30days' | 'thisMonth'>('today');
     const [dateRange, setDateRange] = useState<DateRange>(getDateRangePreset('today'));
-    const [activeTab, setActiveTab] = useState(initialTab);
+    const [activeTab, setActiveTab] = useState('sales');
 
     const { salesOverview, employeeSales, productSales, customerSales, isLoading } = useSalesReports(dateRange);
 

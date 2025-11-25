@@ -122,8 +122,8 @@ export function CheckoutModal({ isOpen, onClose, total, subtotal, tax }: Checkou
 
             // 1. Create Order
             // 1. Create or Update Order
-            let order;
-            let orderError;
+            let order: any;
+            let orderError: any;
 
             const orderData = {
                 shift_id: currentShift.id,

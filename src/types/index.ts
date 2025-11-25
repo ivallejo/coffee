@@ -50,6 +50,14 @@ export interface Product {
     };
 }
 
+export interface ProductRecipe {
+    id: string;
+    parent_product_id: string;
+    ingredient_product_id: string;
+    quantity: number;
+    ingredient_product?: Product;
+}
+
 export interface Variant {
     id: string;
     product_id: string;
