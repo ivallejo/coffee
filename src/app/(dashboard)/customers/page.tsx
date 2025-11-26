@@ -12,12 +12,17 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, ArrowLeft, Search, Loader2, Users as UsersIcon, Trophy, Pencil } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 export default function CustomersPage() {
     const { customers, loading, addCustomer, updateCustomer } = useCustomers();
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
+    const [searchingDoc, setSearchingDoc] = useState(false);
+    const [quickSearch, setQuickSearch] = useState('');
+    const [isQuickSearching, setIsQuickSearching] = useState(false);
+
     const [formData, setFormData] = useState<Partial<Customer>>({
         doc_type: 'DNI',
         first_name: '',
@@ -33,6 +38,117 @@ export default function CustomersPage() {
         c.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         c.phone?.includes(searchTerm)
     );
+
+    const handleQuickLookup = async () => {
+        const isDni = /^\d{8}$/.test(quickSearch);
+        const isRuc = /^\d{11}$/.test(quickSearch);
+
+        if (!isDni && !isRuc) {
+            toast.error('Ingrese un DNI (8 dígitos) o RUC (11 dígitos) válido');
+            return;
+        }
+
+        // Check if customer already exists locally
+        const existingCustomer = customers.find(c => c.doc_number === quickSearch);
+        if (existingCustomer) {
+            toast.info('El cliente ya se encuentra registrado');
+            handleOpenModal(existingCustomer);
+            setQuickSearch('');
+            return;
+        }
+
+        setIsQuickSearching(true);
+        try {
+            const endpoint = isDni ? 'dni' : 'ruc';
+            const param = isDni ? 'dni' : 'ruc';
+
+            const res = await fetch(`/api/consultas/${endpoint}?${param}=${quickSearch}`);
+            const data = await res.json();
+
+            if (data.success) {
+                const customerData = {
+                    doc_type: isDni ? 'DNI' : 'RUC',
+                    doc_number: quickSearch,
+                    first_name: isDni ? data.nombres : data.razon_social,
+                    last_name_father: isDni ? data.apellidoPaterno : '',
+                    last_name_mother: isDni ? data.apellidoMaterno : '',
+                    full_name: isDni
+                        ? `${data.nombres} ${data.apellidoPaterno} ${data.apellidoMaterno}`.trim()
+                        : data.razon_social,
+                    address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : '',
+                    email: '',
+                    phone: ''
+                };
+
+                setEditingId(null);
+                setFormData(customerData);
+                setIsModalOpen(true);
+                setQuickSearch('');
+                toast.success('Datos encontrados y cargados');
+            } else {
+                toast.error('Documento no encontrado, abriendo formulario vacío');
+                setEditingId(null);
+                setFormData({
+                    doc_type: isDni ? 'DNI' : 'RUC',
+                    doc_number: quickSearch,
+                    first_name: '', last_name_father: '', last_name_mother: '', full_name: ''
+                });
+                setIsModalOpen(true);
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Error al consultar servicio');
+        } finally {
+            setIsQuickSearching(false);
+        }
+    };
+
+    const handleSearchDocument = async () => {
+        const isDni = formData.doc_type === 'DNI' && formData.doc_number?.length === 8;
+        const isRuc = formData.doc_type === 'RUC' && formData.doc_number?.length === 11;
+
+        if (!isDni && !isRuc) return;
+
+        setSearchingDoc(true);
+        try {
+            const endpoint = isDni ? 'dni' : 'ruc';
+            const param = isDni ? 'dni' : 'ruc';
+
+            const res = await fetch(`/api/consultas/${endpoint}?${param}=${formData.doc_number}`);
+            const data = await res.json();
+
+            if (data.success) {
+                if (isDni) {
+                    setFormData(prev => ({
+                        ...prev,
+                        first_name: data.nombres,
+                        last_name_father: data.apellidoPaterno,
+                        last_name_mother: data.apellidoMaterno,
+                        full_name: `${data.nombres} ${data.apellidoPaterno} ${data.apellidoMaterno}`.trim(),
+                        address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
+                    }));
+                } else {
+                    // RUC Logic
+                    setFormData(prev => ({
+                        ...prev,
+                        first_name: data.razon_social,
+                        last_name_father: '',
+                        last_name_mother: '',
+                        full_name: data.razon_social,
+                        address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
+                    }));
+                }
+                toast.success('Datos encontrados');
+            } else {
+                toast.error(`${isDni ? 'DNI' : 'RUC'} no encontrado`);
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Error al consultar documento');
+        } finally {
+            setSearchingDoc(false);
+        }
+    };
 
     const handleOpenModal = (customer?: Customer) => {
         if (customer) {
@@ -64,16 +180,19 @@ export default function CustomersPage() {
 
         setSubmitting(true);
         try {
-            const dataToSave = { ...formData, full_name: fullName };
+            // Sanitize data: remove virtual fields and id
+            const { loyalty_points, loyalty_cards, id, created_at, ...cleanData } = formData as any;
+            const dataToSave = { ...cleanData, full_name: fullName };
 
             if (editingId) {
                 await updateCustomer({ id: editingId, ...dataToSave });
             } else {
-                await addCustomer(dataToSave as any);
+                await addCustomer(dataToSave);
             }
             setIsModalOpen(false);
             setFormData({ doc_type: 'DNI' });
             setEditingId(null);
+            setQuickSearch('');
         } catch (error) {
             console.error('Error saving customer:', error);
         } finally {
@@ -100,9 +219,35 @@ export default function CustomersPage() {
                         <h1 className="text-3xl font-bold">Clientes</h1>
                         <p className="text-gray-500">Gestiona tu base de clientes</p>
                     </div>
-                    <Button onClick={() => handleOpenModal()} className="bg-[#673de6] hover:bg-[#5a2fcc]">
-                        <Plus className="mr-2 h-4 w-4" /> Nuevo Cliente
-                    </Button>
+                    <div className="flex gap-2 items-center">
+                        <div className="relative">
+                            <Input
+                                placeholder="Consulta Rápida DNI/RUC"
+                                className="w-64 pr-10 bg-white dark:bg-gray-800"
+                                value={quickSearch}
+                                onChange={e => setQuickSearch(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleQuickLookup();
+                                    }
+                                }}
+                                maxLength={11}
+                            />
+                            <Button
+                                size="icon"
+                                variant="ghost"
+                                className="absolute right-0 top-0 h-full w-10 text-gray-500 hover:text-[#673de6]"
+                                onClick={handleQuickLookup}
+                                disabled={isQuickSearching}
+                            >
+                                {isQuickSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                            </Button>
+                        </div>
+                        <Button onClick={() => handleOpenModal()} className="bg-[#673de6] hover:bg-[#5a2fcc]">
+                            <Plus className="mr-2 h-4 w-4" /> Nuevo Cliente
+                        </Button>
+                    </div>
                 </div>
             </div>
 
@@ -278,11 +423,29 @@ export default function CustomersPage() {
                             </div>
                             <div className="space-y-2">
                                 <Label>Número de Documento</Label>
-                                <Input
-                                    value={formData.doc_number || ''}
-                                    onChange={e => setFormData({ ...formData, doc_number: e.target.value })}
-                                    placeholder="12345678"
-                                />
+                                <div className="flex gap-2">
+                                    <Input
+                                        value={formData.doc_number || ''}
+                                        onChange={e => setFormData({ ...formData, doc_number: e.target.value })}
+                                        placeholder={formData.doc_type === 'RUC' ? "11 dígitos" : "8 dígitos"}
+                                        maxLength={formData.doc_type === 'RUC' ? 11 : 8}
+                                    />
+                                    <Button
+                                        type="button"
+                                        size="icon"
+                                        variant="outline"
+                                        onClick={handleSearchDocument}
+                                        disabled={
+                                            searchingDoc ||
+                                            (formData.doc_type === 'DNI' && formData.doc_number?.length !== 8) ||
+                                            (formData.doc_type === 'RUC' && formData.doc_number?.length !== 11) ||
+                                            (formData.doc_type !== 'DNI' && formData.doc_type !== 'RUC')
+                                        }
+                                        title="Buscar en RENIEC/SUNAT"
+                                    >
+                                        {searchingDoc ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">

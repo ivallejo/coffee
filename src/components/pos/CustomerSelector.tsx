@@ -17,7 +17,7 @@ export function CustomerSelector() {
     const [search, setSearch] = useState('');
     const [showResults, setShowResults] = useState(false);
     const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
-    const [searchingDni, setSearchingDni] = useState(false);
+    const [searchingDoc, setSearchingDoc] = useState(false);
 
     // New Customer Form
     const [newCustomer, setNewCustomer] = useState({
@@ -32,32 +32,50 @@ export function CustomerSelector() {
         address: ''
     });
 
-    const handleSearchDni = async () => {
-        if (newCustomer.doc_type !== 'DNI' || newCustomer.doc_number.length !== 8) return;
+    const handleSearchDocument = async () => {
+        const isDni = newCustomer.doc_type === 'DNI' && newCustomer.doc_number.length === 8;
+        const isRuc = newCustomer.doc_type === 'RUC' && newCustomer.doc_number.length === 11;
 
-        setSearchingDni(true);
+        if (!isDni && !isRuc) return;
+
+        setSearchingDoc(true);
         try {
-            const res = await fetch(`/api/consultas/dni?dni=${newCustomer.doc_number}`);
+            const endpoint = isDni ? 'dni' : 'ruc';
+            const param = isDni ? 'dni' : 'ruc';
+
+            const res = await fetch(`/api/consultas/${endpoint}?${param}=${newCustomer.doc_number}`);
             const data = await res.json();
 
             if (data.success) {
-                setNewCustomer(prev => ({
-                    ...prev,
-                    first_name: data.nombres,
-                    last_name_father: data.apellidoPaterno,
-                    last_name_mother: data.apellidoMaterno,
-                    full_name: `${data.nombres} ${data.apellidoPaterno} ${data.apellidoMaterno}`.trim(),
-                    address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
-                }));
+                if (isDni) {
+                    setNewCustomer(prev => ({
+                        ...prev,
+                        first_name: data.nombres,
+                        last_name_father: data.apellidoPaterno,
+                        last_name_mother: data.apellidoMaterno,
+                        full_name: `${data.nombres} ${data.apellidoPaterno} ${data.apellidoMaterno}`.trim(),
+                        address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
+                    }));
+                } else {
+                    // RUC Logic
+                    setNewCustomer(prev => ({
+                        ...prev,
+                        first_name: data.razon_social,
+                        last_name_father: '',
+                        last_name_mother: '',
+                        full_name: data.razon_social,
+                        address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
+                    }));
+                }
                 toast.success('Datos encontrados');
             } else {
-                toast.error('DNI no encontrado');
+                toast.error(`${isDni ? 'DNI' : 'RUC'} no encontrado`);
             }
         } catch (error) {
             console.error(error);
-            toast.error('Error al consultar DNI');
+            toast.error('Error al consultar documento');
         } finally {
-            setSearchingDni(false);
+            setSearchingDoc(false);
         }
     };
 
@@ -109,13 +127,14 @@ export function CustomerSelector() {
 
     const handleQuickCreate = async (searchValue: string) => {
         const isDni = /^\d{8}$/.test(searchValue);
+        const isRuc = /^\d{11}$/.test(searchValue);
 
         // Pre-fill basic info
         setNewCustomer(prev => ({
             ...prev,
-            doc_type: isDni ? 'DNI' : 'DNI',
-            doc_number: isDni ? searchValue : '',
-            full_name: !isDni ? searchValue : '', // If not DNI, use search as name
+            doc_type: isRuc ? 'RUC' : (isDni ? 'DNI' : 'DNI'),
+            doc_number: (isDni || isRuc) ? searchValue : '',
+            full_name: (!isDni && !isRuc) ? searchValue : '',
             first_name: '',
             last_name_father: '',
             last_name_mother: '',
@@ -126,31 +145,47 @@ export function CustomerSelector() {
 
         setIsNewCustomerOpen(true);
 
-        // If it looks like a DNI, auto-search
-        if (isDni) {
-            setSearchingDni(true);
+        // Auto-search if DNI or RUC
+        if (isDni || isRuc) {
+            setSearchingDoc(true);
             try {
-                const res = await fetch(`/api/consultas/dni?dni=${searchValue}`);
+                const endpoint = isDni ? 'dni' : 'ruc';
+                const param = isDni ? 'dni' : 'ruc';
+
+                const res = await fetch(`/api/consultas/${endpoint}?${param}=${searchValue}`);
                 const data = await res.json();
 
                 if (data.success) {
-                    setNewCustomer(prev => ({
-                        ...prev,
-                        doc_number: searchValue,
-                        doc_type: 'DNI',
-                        first_name: data.nombres,
-                        last_name_father: data.apellidoPaterno,
-                        last_name_mother: data.apellidoMaterno,
-                        full_name: `${data.nombres} ${data.apellidoPaterno} ${data.apellidoMaterno}`.trim(),
-                        address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
-                    }));
+                    if (isDni) {
+                        setNewCustomer(prev => ({
+                            ...prev,
+                            doc_number: searchValue,
+                            doc_type: 'DNI',
+                            first_name: data.nombres,
+                            last_name_father: data.apellidoPaterno,
+                            last_name_mother: data.apellidoMaterno,
+                            full_name: `${data.nombres} ${data.apellidoPaterno} ${data.apellidoMaterno}`.trim(),
+                            address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
+                        }));
+                    } else {
+                        // RUC Logic
+                        setNewCustomer(prev => ({
+                            ...prev,
+                            doc_number: searchValue,
+                            doc_type: 'RUC',
+                            first_name: data.razon_social,
+                            last_name_father: '',
+                            last_name_mother: '',
+                            full_name: data.razon_social,
+                            address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
+                        }));
+                    }
                     toast.success('Datos encontrados automáticamente');
                 }
             } catch (error) {
                 console.error(error);
-                // Silent error, user can try manually
             } finally {
-                setSearchingDni(false);
+                setSearchingDoc(false);
             }
         }
     };
@@ -290,18 +325,23 @@ export function CustomerSelector() {
                                     <Input
                                         value={newCustomer.doc_number}
                                         onChange={(e) => setNewCustomer({ ...newCustomer, doc_number: e.target.value })}
-                                        placeholder="8 dígitos"
-                                        maxLength={8}
+                                        placeholder={newCustomer.doc_type === 'RUC' ? "11 dígitos" : "8 dígitos"}
+                                        maxLength={newCustomer.doc_type === 'RUC' ? 11 : 8}
                                     />
                                     <Button
                                         type="button"
                                         size="icon"
                                         variant="outline"
-                                        onClick={handleSearchDni}
-                                        disabled={searchingDni || newCustomer.doc_type !== 'DNI' || newCustomer.doc_number.length !== 8}
-                                        title="Buscar en RENIEC"
+                                        onClick={handleSearchDocument}
+                                        disabled={
+                                            searchingDoc ||
+                                            (newCustomer.doc_type === 'DNI' && newCustomer.doc_number.length !== 8) ||
+                                            (newCustomer.doc_type === 'RUC' && newCustomer.doc_number.length !== 11) ||
+                                            (newCustomer.doc_type !== 'DNI' && newCustomer.doc_type !== 'RUC')
+                                        }
+                                        title="Buscar en RENIEC/SUNAT"
                                     >
-                                        {searchingDni ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                                        {searchingDoc ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                                     </Button>
                                 </div>
                             </div>

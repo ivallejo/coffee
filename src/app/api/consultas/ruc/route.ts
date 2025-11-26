@@ -4,14 +4,14 @@ const FACTILIZA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzOTk0My
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
-    const dni = searchParams.get('dni');
+    const ruc = searchParams.get('ruc');
 
-    if (!dni || dni.length !== 8) {
-        return NextResponse.json({ error: 'DNI inválido' }, { status: 400 });
+    if (!ruc || ruc.length !== 11) {
+        return NextResponse.json({ error: 'RUC inválido' }, { status: 400 });
     }
 
     try {
-        const response = await fetch(`https://api.factiliza.com/v1/dni/info/${dni}`, {
+        const response = await fetch(`https://api.factiliza.com/v1/ruc/info/${ruc}`, {
             headers: {
                 'Authorization': `Bearer ${FACTILIZA_TOKEN}`
             },
@@ -21,17 +21,18 @@ export async function GET(request: Request) {
 
         if (!response.ok || !data.success) {
             console.error('API Error:', data);
-            return NextResponse.json({ error: data.message || 'DNI no encontrado' }, { status: 404 });
+            return NextResponse.json({ error: data.message || 'RUC no encontrado' }, { status: 404 });
         }
 
         const info = data.data;
 
-        // Mapear respuesta al formato que espera el frontend
+        // Mapear respuesta
         const result = {
             success: true,
-            nombres: info.nombres,
-            apellidoPaterno: info.apellido_paterno,
-            apellidoMaterno: info.apellido_materno,
+            ruc: info.numero,
+            razon_social: info.nombre_o_razon_social,
+            estado: info.estado,
+            condicion: info.condicion,
             direccion: info.direccion || '',
             ubigeo: info.ubigeo_sunat || '',
             distrito: info.distrito || '',
@@ -41,7 +42,7 @@ export async function GET(request: Request) {
 
         return NextResponse.json(result);
     } catch (error) {
-        console.error('Error fetching DNI:', error);
+        console.error('Error fetching RUC:', error);
         return NextResponse.json({ error: 'Error al consultar el servicio' }, { status: 500 });
     }
 }
