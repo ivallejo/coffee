@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { User, Plus, Search, X, Check } from 'lucide-react';
+import { User, Plus, Search, X, Check, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export function CustomerSelector() {
     const { customers, loading, addCustomer } = useCustomers();
@@ -16,16 +17,49 @@ export function CustomerSelector() {
     const [search, setSearch] = useState('');
     const [showResults, setShowResults] = useState(false);
     const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
+    const [searchingDni, setSearchingDni] = useState(false);
 
     // New Customer Form
     const [newCustomer, setNewCustomer] = useState({
         full_name: '',
+        first_name: '',
+        last_name_father: '',
+        last_name_mother: '',
         doc_type: 'DNI',
         doc_number: '',
         email: '',
         phone: '',
         address: ''
     });
+
+    const handleSearchDni = async () => {
+        if (newCustomer.doc_type !== 'DNI' || newCustomer.doc_number.length !== 8) return;
+
+        setSearchingDni(true);
+        try {
+            const res = await fetch(`/api/consultas/dni?dni=${newCustomer.doc_number}`);
+            const data = await res.json();
+
+            if (data.success) {
+                setNewCustomer(prev => ({
+                    ...prev,
+                    first_name: data.nombres,
+                    last_name_father: data.apellidoPaterno,
+                    last_name_mother: data.apellidoMaterno,
+                    full_name: `${data.nombres} ${data.apellidoPaterno} ${data.apellidoMaterno}`.trim(),
+                    address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
+                }));
+                toast.success('Datos encontrados');
+            } else {
+                toast.error('DNI no encontrado');
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Error al consultar DNI');
+        } finally {
+            setSearchingDni(false);
+        }
+    };
 
     const selectedCustomer = customers.find(c => c.id === customerId);
 
@@ -46,12 +80,78 @@ export function CustomerSelector() {
     };
 
     const handleCreateCustomer = async () => {
-        if (!newCustomer.full_name) return;
-        const created = await addCustomer(newCustomer);
+        const fullName = newCustomer.full_name || `${newCustomer.first_name} ${newCustomer.last_name_father} ${newCustomer.last_name_mother}`.trim();
+
+        if (!fullName) return;
+
+        const customerToCreate = {
+            ...newCustomer,
+            full_name: fullName
+        };
+
+        const created = await addCustomer(customerToCreate);
         if (created) {
             setCustomer(created.id);
             setIsNewCustomerOpen(false);
-            setNewCustomer({ full_name: '', doc_type: 'DNI', doc_number: '', email: '', phone: '', address: '' });
+            setNewCustomer({
+                full_name: '',
+                first_name: '',
+                last_name_father: '',
+                last_name_mother: '',
+                doc_type: 'DNI',
+                doc_number: '',
+                email: '',
+                phone: '',
+                address: ''
+            });
+        }
+    };
+
+    const handleQuickCreate = async (searchValue: string) => {
+        const isDni = /^\d{8}$/.test(searchValue);
+
+        // Pre-fill basic info
+        setNewCustomer(prev => ({
+            ...prev,
+            doc_type: isDni ? 'DNI' : 'DNI',
+            doc_number: isDni ? searchValue : '',
+            full_name: !isDni ? searchValue : '', // If not DNI, use search as name
+            first_name: '',
+            last_name_father: '',
+            last_name_mother: '',
+            email: '',
+            phone: '',
+            address: ''
+        }));
+
+        setIsNewCustomerOpen(true);
+
+        // If it looks like a DNI, auto-search
+        if (isDni) {
+            setSearchingDni(true);
+            try {
+                const res = await fetch(`/api/consultas/dni?dni=${searchValue}`);
+                const data = await res.json();
+
+                if (data.success) {
+                    setNewCustomer(prev => ({
+                        ...prev,
+                        doc_number: searchValue,
+                        doc_type: 'DNI',
+                        first_name: data.nombres,
+                        last_name_father: data.apellidoPaterno,
+                        last_name_mother: data.apellidoMaterno,
+                        full_name: `${data.nombres} ${data.apellidoPaterno} ${data.apellidoMaterno}`.trim(),
+                        address: data.direccion ? `${data.direccion} - ${data.distrito}, ${data.provincia}` : prev.address
+                    }));
+                    toast.success('Datos encontrados automáticamente');
+                }
+            } catch (error) {
+                console.error(error);
+                // Silent error, user can try manually
+            } finally {
+                setSearchingDni(false);
+            }
         }
     };
 
@@ -125,7 +225,7 @@ export function CustomerSelector() {
                             ) : (
                                 <div
                                     className="px-4 py-3 text-sm text-blue-600 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 text-center"
-                                    onMouseDown={() => setIsNewCustomerOpen(true)}
+                                    onMouseDown={() => handleQuickCreate(search)}
                                 >
                                     + Crear "{search}"
                                 </div>
@@ -142,11 +242,30 @@ export function CustomerSelector() {
                     </DialogHeader>
                     <div className="space-y-4 py-2">
                         <div className="space-y-2">
-                            <Label>Nombre Completo *</Label>
+                            <Label>Nombres</Label>
                             <Input
-                                value={newCustomer.full_name}
-                                onChange={(e) => setNewCustomer({ ...newCustomer, full_name: e.target.value })}
+                                value={newCustomer.first_name}
+                                onChange={(e) => setNewCustomer({ ...newCustomer, first_name: e.target.value, full_name: `${e.target.value} ${newCustomer.last_name_father} ${newCustomer.last_name_mother}`.trim() })}
+                                placeholder="Nombres del cliente"
                             />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Apellido Paterno</Label>
+                                <Input
+                                    value={newCustomer.last_name_father}
+                                    onChange={(e) => setNewCustomer({ ...newCustomer, last_name_father: e.target.value, full_name: `${newCustomer.first_name} ${e.target.value} ${newCustomer.last_name_mother}`.trim() })}
+                                    placeholder="Apellido Paterno"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Apellido Materno</Label>
+                                <Input
+                                    value={newCustomer.last_name_mother}
+                                    onChange={(e) => setNewCustomer({ ...newCustomer, last_name_mother: e.target.value, full_name: `${newCustomer.first_name} ${newCustomer.last_name_father} ${e.target.value}`.trim() })}
+                                    placeholder="Apellido Materno"
+                                />
+                            </div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
@@ -167,10 +286,24 @@ export function CustomerSelector() {
                             </div>
                             <div className="space-y-2">
                                 <Label>Número Doc.</Label>
-                                <Input
-                                    value={newCustomer.doc_number}
-                                    onChange={(e) => setNewCustomer({ ...newCustomer, doc_number: e.target.value })}
-                                />
+                                <div className="flex gap-2">
+                                    <Input
+                                        value={newCustomer.doc_number}
+                                        onChange={(e) => setNewCustomer({ ...newCustomer, doc_number: e.target.value })}
+                                        placeholder="8 dígitos"
+                                        maxLength={8}
+                                    />
+                                    <Button
+                                        type="button"
+                                        size="icon"
+                                        variant="outline"
+                                        onClick={handleSearchDni}
+                                        disabled={searchingDni || newCustomer.doc_type !== 'DNI' || newCustomer.doc_number.length !== 8}
+                                        title="Buscar en RENIEC"
+                                    >
+                                        {searchingDni ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
@@ -203,7 +336,7 @@ export function CustomerSelector() {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsNewCustomerOpen(false)}>Cancelar</Button>
-                        <Button onClick={handleCreateCustomer} disabled={!newCustomer.full_name}>Guardar</Button>
+                        <Button onClick={handleCreateCustomer} disabled={!newCustomer.first_name && !newCustomer.full_name}>Guardar</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

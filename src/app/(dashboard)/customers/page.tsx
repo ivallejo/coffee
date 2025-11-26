@@ -10,15 +10,20 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, ArrowLeft, Search, Loader2, Users as UsersIcon, Trophy } from 'lucide-react';
+import { Plus, ArrowLeft, Search, Loader2, Users as UsersIcon, Trophy, Pencil } from 'lucide-react';
 import Link from 'next/link';
 
 export default function CustomersPage() {
-    const { customers, loading, addCustomer } = useCustomers();
+    const { customers, loading, addCustomer, updateCustomer } = useCustomers();
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [formData, setFormData] = useState<Partial<Customer>>({
-        doc_type: 'DNI'
+        doc_type: 'DNI',
+        first_name: '',
+        last_name_father: '',
+        last_name_mother: '',
+        full_name: ''
     });
     const [submitting, setSubmitting] = useState(false);
 
@@ -29,22 +34,48 @@ export default function CustomersPage() {
         c.phone?.includes(searchTerm)
     );
 
-    const handleOpenModal = () => {
-        setFormData({ doc_type: 'DNI' });
+    const handleOpenModal = (customer?: Customer) => {
+        if (customer) {
+            setEditingId(customer.id);
+            setFormData({
+                ...customer,
+                first_name: customer.first_name || '',
+                last_name_father: customer.last_name_father || '',
+                last_name_mother: customer.last_name_mother || ''
+            });
+        } else {
+            setEditingId(null);
+            setFormData({
+                doc_type: 'DNI',
+                first_name: '',
+                last_name_father: '',
+                last_name_mother: '',
+                full_name: ''
+            });
+        }
         setIsModalOpen(true);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.full_name) return;
+
+        const fullName = formData.full_name || `${formData.first_name} ${formData.last_name_father} ${formData.last_name_mother}`.trim();
+        if (!fullName) return;
 
         setSubmitting(true);
         try {
-            await addCustomer(formData as any);
+            const dataToSave = { ...formData, full_name: fullName };
+
+            if (editingId) {
+                await updateCustomer({ id: editingId, ...dataToSave });
+            } else {
+                await addCustomer(dataToSave as any);
+            }
             setIsModalOpen(false);
             setFormData({ doc_type: 'DNI' });
+            setEditingId(null);
         } catch (error) {
-            console.error('Error adding customer:', error);
+            console.error('Error saving customer:', error);
         } finally {
             setSubmitting(false);
         }
@@ -69,7 +100,7 @@ export default function CustomersPage() {
                         <h1 className="text-3xl font-bold">Clientes</h1>
                         <p className="text-gray-500">Gestiona tu base de clientes</p>
                     </div>
-                    <Button onClick={handleOpenModal} className="bg-[#673de6] hover:bg-[#5a2fcc]">
+                    <Button onClick={() => handleOpenModal()} className="bg-[#673de6] hover:bg-[#5a2fcc]">
                         <Plus className="mr-2 h-4 w-4" /> Nuevo Cliente
                     </Button>
                 </div>
@@ -176,6 +207,15 @@ export default function CustomersPage() {
                                         );
                                     },
                                     className: 'text-center'
+                                },
+                                {
+                                    header: 'Acciones',
+                                    accessor: (customer) => (
+                                        <Button variant="ghost" size="icon" onClick={() => handleOpenModal(customer)}>
+                                            <Pencil className="h-4 w-4 text-gray-500" />
+                                        </Button>
+                                    ),
+                                    className: 'w-[50px] text-center'
                                 }
                             ]}
                         />
@@ -186,18 +226,38 @@ export default function CustomersPage() {
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Nuevo Cliente</DialogTitle>
+                        <DialogTitle>{editingId ? 'Editar Cliente' : 'Nuevo Cliente'}</DialogTitle>
                     </DialogHeader>
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Nombre Completo *</Label>
-                            <Input
-                                value={formData.full_name || ''}
-                                onChange={e => setFormData({ ...formData, full_name: e.target.value })}
-                                required
-                                placeholder="Juan Pérez"
-                            />
+                        <div className="space-y-4 py-2">
+                            <div className="space-y-2">
+                                <Label>Nombres</Label>
+                                <Input
+                                    value={formData.first_name || ''}
+                                    onChange={(e) => setFormData({ ...formData, first_name: e.target.value, full_name: `${e.target.value} ${formData.last_name_father || ''} ${formData.last_name_mother || ''}`.trim() })}
+                                    placeholder="Nombres del cliente"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Apellido Paterno</Label>
+                                    <Input
+                                        value={formData.last_name_father || ''}
+                                        onChange={(e) => setFormData({ ...formData, last_name_father: e.target.value, full_name: `${formData.first_name || ''} ${e.target.value} ${formData.last_name_mother || ''}`.trim() })}
+                                        placeholder="Apellido Paterno"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Apellido Materno</Label>
+                                    <Input
+                                        value={formData.last_name_mother || ''}
+                                        onChange={(e) => setFormData({ ...formData, last_name_mother: e.target.value, full_name: `${formData.first_name || ''} ${formData.last_name_father || ''} ${e.target.value}`.trim() })}
+                                        placeholder="Apellido Materno"
+                                    />
+                                </div>
+                            </div>
                         </div>
+
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label>Tipo de Documento *</Label>
@@ -258,7 +318,7 @@ export default function CustomersPage() {
                             </Button>
                             <Button type="submit" disabled={submitting} className="bg-[#673de6] hover:bg-[#5a2fcc]">
                                 {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Crear Cliente
+                                {editingId ? 'Guardar Cambios' : 'Crear Cliente'}
                             </Button>
                         </DialogFooter>
                     </form>

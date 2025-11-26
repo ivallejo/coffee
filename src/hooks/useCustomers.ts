@@ -5,6 +5,9 @@ import { toast } from 'sonner';
 export interface Customer {
     id: string;
     full_name: string;
+    first_name?: string;
+    last_name_father?: string;
+    last_name_mother?: string;
     doc_type: string;
     doc_number: string | null;
     email: string | null;
@@ -92,10 +95,36 @@ export function useCustomers() {
         },
     });
 
+    const updateCustomerMutation = useMutation({
+        mutationFn: async ({ id, ...updates }: Partial<Customer> & { id: string }) => {
+            const { data, error } = await supabase
+                .from('customers')
+                .update(updates)
+                .eq('id', id)
+                .select()
+                .single();
+
+            if (error) {
+                console.error('Error updating customer:', error);
+                throw error;
+            }
+
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['customers'] });
+            toast.success('Cliente actualizado exitosamente');
+        },
+        onError: () => {
+            toast.error('Error al actualizar cliente');
+        },
+    });
+
     return {
         customers,
         loading,
         refetch,
         addCustomer: addCustomerMutation.mutateAsync,
+        updateCustomer: updateCustomerMutation.mutateAsync,
     };
 }
